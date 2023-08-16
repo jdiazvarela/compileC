@@ -3,3 +3,5 @@
 bin/
 .compileC.lock
 .compileC.lastUpdates
+.compileC.stdout
+.compileC.stderr

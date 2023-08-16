@@ -24,6 +24,7 @@ SRC_FOLDER_REGEXP='';
 BIN_FOLDER='';
 DLL_FOLDER='';
 ROOT_FOLDERS_REGEXP='';
+MAIN_PID='';
 
 
 ### --- MAIN
@@ -88,8 +89,10 @@ mainLoop() {
 
 		if [ -n "${TO_COMPILE}" ]; then
 			msgCompilationNotFinished;
+			return 1;
 		else
 			msgCompilationFinished;
+			return 0;
 		fi;
 	fi;
 };
@@ -112,11 +115,23 @@ main() {
 
 	local lastFullUpdate="$( date +%s )";
 	local curretTimestamp='';
+	local firstRun=0;
 
 	local TO_COMPILE='';
 	while true; do
 		curretTimestamp="$( date +%s )";
-		mainLoop;
+		if [ ${firstRun} -eq 0 ]; then
+			msgInit;
+		fi;
+		if mainLoop; then
+			if [ ${firstRun} -eq 0 ]; then
+				if [ -z "${MAIN_PID}" ]; then
+					"${BIN_FOLDER}/$( getCompilationOutputSubPath "${MAIN_SRC_FILE}" )" 1>"${RUN_STDOUT_PATH}" 2>"${RUN_STDERR_PATH}" &
+					MAIN_PID=$!;
+				fi;
+			fi;
+		fi;
+		firstRun=1;
 		sleep "${LOOP_DELAY}";
 	done;
 
@@ -132,6 +147,11 @@ msgDate() { :
 
 msgInfo() {
 	printf '%s' "$( msgDate ):";
+};
+
+msgInit() { :
+	printf '%s\n' "$( msgInfo ) INIT";
+	printf '\n';
 };
 
 msgCompilationNotFinished() { :
@@ -157,7 +177,7 @@ msgCd() {
 		| \
 		sed '
 			/^\('"${ROOT_FOLDERS_REGEXP}"'\)$/d
-			s/^\('"${ROOT_FOLDERS_REGEXP}"'\)\//cd '"'"'/;
+			s/^\('"${ROOT_FOLDERS_REGEXP}"'\)\//cd '"'"'{{ROOT}}\//;
 			t_ok;
 			b;
 			:_ok;
@@ -857,6 +877,16 @@ compileTarget() {
 
 	# main source code
 	if [ "${current}" = "${MAIN_SRC_FILE}" ]; then
+
+		if [ -n "${MAIN_PID}" ]; then
+			ps -p "${MAIN_PID}" 1>>/dev/null 2>>/dev/null;
+			if [ $? -eq 0 ]; then
+				msgCommand "kill '${MAIN_PID}'";
+				kill "${MAIN_PID}";
+				Error $? "terminating previous execution, pid ${MAIN_PID}" || return $?;
+			fi;
+		fi;
+
 		CMD="${CMD} ${name} ${_FLAGS_DEFAULT_MAIN} ${_SHARED} ${_LIBS}";
 	else
 		if isDll "${current}"; then
@@ -868,6 +898,14 @@ compileTarget() {
 
 	msgCommand "${CMD}";
 	${CMD};
+	Error $? "while compiling '${current}'" || return $?;
+
+	if [ "${current}" = "${MAIN_SRC_FILE}" ]; then
+		"${output}" 1>"${RUN_STDOUT_PATH}" 2>"${RUN_STDERR_PATH}" &
+		MAIN_PID=$!;
+	fi;
+
+	return 0;
 };
 
 
@@ -968,6 +1006,7 @@ setEnv() {
 		cat
 		date
 		ps
+		kill
 
 		sort
 
@@ -1058,6 +1097,9 @@ setEnv() {
 	SRC_FOLDER="$( readlink -m "${SCRIPT_LOCATION}/${SRC_SUBFOLDER}" )";
 	SRC_FOLDER_REGEXP="$( text_toRexp "${SRC_FOLDER}" )";
 	DLL_FOLDER="$( readlink -m "${SRC_FOLDER}/${DLL_SUBFOLDER}" )";
+
+	RUN_STDOUT_PATH="${SCRIPT_LOCATION}/.$( printf '%s' "${SCRIPT_EXECUTABLE}" | sed 's/^\(.\+\)\.[^.]\+$/\1/' ).stdout";
+	RUN_STDERR_PATH="${SCRIPT_LOCATION}/.$( printf '%s' "${SCRIPT_EXECUTABLE}" | sed 's/^\(.\+\)\.[^.]\+$/\1/' ).stderr";
 
 	ROOT_FOLDERS_REGEXP="$( text_toRexp "$( printf '%s\n%s' "${BIN_FOLDER}" "${SRC_FOLDER}" )" )";
 
