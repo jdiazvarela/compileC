@@ -25,6 +25,7 @@ BIN_FOLDER='';
 DLL_FOLDER='';
 ROOT_FOLDERS_REGEXP='';
 MAIN_PID='';
+MAIN_CHANGES=0;
 
 
 ### --- MAIN
@@ -47,11 +48,37 @@ mainLoop() {
 		[ ${curretTimestamp} -gt $(( ${lastFullUpdate} + ${FULL_UPDATE_LAPSE} )) ] && lastFullUpdate="${curretTimestamp}";
 	fi;
 
+	local _SUMMARY='';
 	TO_COMPILE='';
 	getCompileCandidates || return $?;
 
+	printf '%s' "${TO_COMPILE}" | sed -n '/^'"$( text_toRexp "${MAIN_SRC_FILE}" )"'$/q33';
+	if [ $? -eq 33 ]; then
+		if [ -n "${MAIN_PID}" ]; then
+			if kill -s 0 "${MAIN_PID}" 1>/dev/null 2>/dev/null; then
+				kill "${MAIN_PID}";
+				if [ $? -eq 0 ]; then
+					showPacer 'terminated';
+					msgCommand "kill '${MAIN_PID}'";
+					msgInfo 'changes detected affected main source file, previous execution terminated';
+				else
+					Error 1 "terminating previous execution, pid ${MAIN_PID}";
+					exit $?;
+				fi;
+			else
+				showPacer;
+			fi;
+		fi;
+	fi;
+	if [ -n "${_SUMMARY}" ]; then
+		printf '%s' "${_SUMMARY}" | sed '1d';
+		printf '\n';
+	fi;
+
 	# is there something to do?
 	if [ -n "${TO_COMPILE}" ]; then
+
+		msgInfo '** BUILDING';
 
 		local i='';
 		for i in $( seq "$( text_lineCount "${TO_COMPILE}" )" ); do
@@ -116,19 +143,39 @@ main() {
 	local lastFullUpdate="$( date +%s )";
 	local curretTimestamp='';
 	local firstRun=0;
+	local bin='';
 
 	local TO_COMPILE='';
 	while true; do
+
+		MAIN_CHANGES=0;
+
 		curretTimestamp="$( date +%s )";
 		if [ ${firstRun} -eq 0 ]; then
 			msgInit;
 		fi;
 		if mainLoop; then
-			if [ ${firstRun} -eq 0 ]; then
-				if [ -z "${MAIN_PID}" ]; then
-					"${BIN_FOLDER}/$( getCompilationOutputSubPath "${MAIN_SRC_FILE}" )" 1>"${RUN_STDOUT_PATH}" 2>"${RUN_STDERR_PATH}" &
-					MAIN_PID=$!;
+			if [ ${firstRun} -eq 0 ] || [ ${MAIN_CHANGES} -gt 0 ]; then
+				if [ -n "${MAIN_PID}" ] && kill -s 0 "${MAIN_PID}" 1>/dev/null 2>/dev/null; then
+					msgCommand "kill '${MAIN_PID}'";
+					kill "${MAIN_PID}";
+					Error $? "terminating previous execution, pid ${MAIN_PID}" || return $?;
 				fi;
+
+				msgInfo '** RUN';
+
+				if [ "${PWD}" != "${BIN_FOLDER}" ]; then
+					msgCommand "cd '${BIN_FOLDER}'";
+					cd "${BIN_FOLDER}";
+					Error $? "positioning into the main binary directory" || return $?;
+				fi;
+
+				bin="$( getCompilationOutputSubPath "${MAIN_SRC_FILE}" )";
+
+				msgCommand "./${bin}";
+				showPacer 'start';
+				./${bin} 1>"${STDOUT}" 2>"${STDERR}" &
+				MAIN_PID=$!;
 			fi;
 		fi;
 		firstRun=1;
@@ -141,33 +188,36 @@ main() {
 
 ### --- MESSAGES
 
+showPacer() {
+	printf '%s\n' ' =================== '"$*";
+};
+
 msgDate() { :
-	date +' %Y-%m-%d %H:%M:%S ';
+	date +'%Y-%m-%d %H:%M:%S';
 };
 
 msgInfo() {
-	printf '%s' "$( msgDate ):";
+	printf '%s\n' " $( msgDate ) $*";
+};
+
+msgCommand() { :
+	[ -z "$*" ] && return 0;
+	printf '%s\n' " $( msgDate ) :> CMD: $*";
 };
 
 msgInit() { :
-	printf '%s\n' "$( msgInfo ) INIT";
+	msgInfo '** INIT';
 	printf '\n';
 };
 
 msgCompilationNotFinished() { :
-	printf '%s\n' "$( msgInfo ) UNABLE TO FINISH PROJECT COMPILATION";
+	msgInfo '** UNABLE TO FINISH PROJECT COMPILATION';
 	printf '\n';
 };
 
 msgCompilationFinished() { :
-	printf '%s\n' "$( msgInfo ) PROJECT COMPILED";
+	msgInfo '** PROJECT COMPILED';
 	printf '\n';
-};
-
-# $*: command
-msgCommand() { :
-	[ -z "$*" ] && return 0;
-	echo "$( msgDate ):> CMD: $*";
 };
 
 # $*: path
@@ -184,12 +234,12 @@ msgCd() {
 			s/$/'"'"'/;
 		' \
 	)";
-}
+};
 
 # $*: filepath
 msgModificationDetected() { :
 	local target="$( printf '%s' "$*" | sed 's/^\('"${ROOT_FOLDERS_REGEXP}"'\)\///;' )";
-	echo "$( msgInfo ) file modified since last time '${target}'";
+	msgInfo "file modified since last time '${target}'";
 };
 
 # $1: filepath
@@ -198,19 +248,19 @@ msgMissingOutput() { :
 	local target="$( printf '%s' "$1" | sed 's/^\('"${ROOT_FOLDERS_REGEXP}"'\)\///;' )";
 	shift 1;
 	local output="$( printf '%s' "$*" | sed 's/^\('"${ROOT_FOLDERS_REGEXP}"'\)\///;' )";
-	echo "$( msgInfo ) source code '${target}' with missing binary '${output}'";
+	msgInfo "source code '${target}' with missing binary '${output}'";
 };
 
 # $*: filepath
 msgUpdateLastModificationTimestamp() { :
 	local target="$( printf '%s' "$*" | sed 's/^\('"${ROOT_FOLDERS_REGEXP}"'\)\///;' )";
-	#echo "$( msgInfo ) source code '$1' with missing binary '$2'";
+	#msgInfo "source code '$1' with missing binary '$2'";
 };
 
 # $*: filepath
 msgLoadedCompilationNotes() { :
 	local target="$( printf '%s' "$*" | sed 's/^\('"${ROOT_FOLDERS_REGEXP}"'\)\///;' )";
-	echo "$( msgInfo ) compilation notes loaded for '${target}'";
+	msgInfo "compilation notes loaded for '${target}'";
 };
 
 # $1: filepath
@@ -219,7 +269,7 @@ msgAffectedByDependencies() { :
 	local target="$( printf '%s' "$1" | sed 's/^\('"${ROOT_FOLDERS_REGEXP}"'\)\///;' )";
 	shift 1;
 	local affected="$( printf '%s' "$*" | sed 's/^\('"${ROOT_FOLDERS_REGEXP}"'\)\///;' | sed ':c;$!{N;bc;};s/\n/'"'"', '"'"'/g;s/^\s*/'"'"'/;s/$/'"'"'/;' )";
-	echo "$( msgInfo ) file '${target}' affects ${affected}";
+	msgInfo "file '${target}' affects ${affected}";
 };
 
 
@@ -629,7 +679,7 @@ fullInfoUpdate() {
 	fi;
 };
 
-# ENV: TO_COMPILE, DEPENDENCIES, LAST_MODIFICATION: updates...one per line, format: <lastupdate>;<filepath>
+# ENV: _SUMMARY, TO_COMPILE, DEPENDENCIES, LAST_MODIFICATION: updates...one per line, format: <lastupdate>;<filepath>
 getCompileCandidates() {
 
 	[ -z "${LAST_MODIFICATION}" ] && return 0;
@@ -658,7 +708,7 @@ getCompileCandidates() {
 
 		if [ ${temporal} -gt ${lastModification} ]; then
 			affected='1';
-			msgModificationDetected "${target}";
+			_SUMMARY="$( printf '%s\n%s' "${_SUMMARY}" "$( msgModificationDetected "${target}" )" )";
 		else
 			# not a header
 			if ( ! isHeader "${target}" ) && ( ! isCNotes "${target}" ); then
@@ -666,7 +716,7 @@ getCompileCandidates() {
 				temporal="${BIN_FOLDER}/$( getCompilationOutputSubPath "${target}" )";
 				if [ ! -f "${temporal}" ]; then
 					affected='1';
-					msgMissingOutput "${target}" "${temporal}";
+					_SUMMARY="$( printf '%s\n%s' "${_SUMMARY}" "$( msgMissingOutput "${target}" "${temporal}" )" )";
 				fi;
 			fi;
 		fi;
@@ -706,7 +756,7 @@ getCompileCandidates() {
 			affected="$( printf '%s' "${DEPENDENCIES}" | sed -n 's/^\([^;]*\).*;'"${regexp}"'\(;.*\)\?$/\1/p' )";
 
 			if [ -n "${affected}" ]; then
-				msgAffectedByDependencies "${target}" "${affected}";
+				_SUMMARY="$( printf '%s\n%s' "${_SUMMARY}" "$( msgAffectedByDependencies "${target}" "${affected}" )" )";
 				affected="$( printf '%s' "${affected}" | sed '/^\('"$( text_toRexp "${updated}" )"'\)$/d' )";
 			fi;
 			if [ -n "${affected}" ]; then
@@ -831,6 +881,11 @@ checkLibsDefined() {
 compileTarget() {
 
 	local current="$*";
+
+	if [ "${current}" = "${MAIN_SRC_FILE}" ]; then
+		MAIN_CHANGES=1;
+	fi;
+
 	local currentRegexp="$( text_toRexp "${current}" )";
 	local currentLocation="$( dirname "${current}" )";
 
@@ -877,20 +932,10 @@ compileTarget() {
 
 	# main source code
 	if [ "${current}" = "${MAIN_SRC_FILE}" ]; then
-
-		if [ -n "${MAIN_PID}" ]; then
-			ps -p "${MAIN_PID}" 1>>/dev/null 2>>/dev/null;
-			if [ $? -eq 0 ]; then
-				msgCommand "kill '${MAIN_PID}'";
-				kill "${MAIN_PID}";
-				Error $? "terminating previous execution, pid ${MAIN_PID}" || return $?;
-			fi;
-		fi;
-
-		CMD="${CMD} ${name} ${_FLAGS_DEFAULT_MAIN} ${_SHARED} ${_LIBS}";
+		CMD="${CMD} ${name} -fPIC ${_FLAGS_DEFAULT_MAIN} ${_SHARED} ${_LIBS}";
 	else
 		if isDll "${current}"; then
-			CMD="${CMD} ${name} ${_SHARED} -shared ${_LIBS}";
+			CMD="${CMD} ${name} ${_SHARED} -fPIC -shared ${_LIBS}";
 		else
 			CMD="${CMD} -c ${name} -shared -fpic";
 		fi;
@@ -899,11 +944,6 @@ compileTarget() {
 	msgCommand "${CMD}";
 	${CMD};
 	Error $? "while compiling '${current}'" || return $?;
-
-	if [ "${current}" = "${MAIN_SRC_FILE}" ]; then
-		"${output}" 1>"${RUN_STDOUT_PATH}" 2>"${RUN_STDERR_PATH}" &
-		MAIN_PID=$!;
-	fi;
 
 	return 0;
 };
@@ -1039,6 +1079,9 @@ setEnv() {
 
 	local procFile="/proc/$$/cmdline";
 
+	STDOUT="/proc/$$/fd/1";
+	STDERR="/proc/$$/fd/2";
+
 	SCRIPT_SHELL="$( sed ':c;$!{N;bc;}; s/\x0.*$//;' "${procFile}" )";
 	Error $? "getting current shell info from pid file '${procFile}'" || return $?;
 
@@ -1097,9 +1140,6 @@ setEnv() {
 	SRC_FOLDER="$( readlink -m "${SCRIPT_LOCATION}/${SRC_SUBFOLDER}" )";
 	SRC_FOLDER_REGEXP="$( text_toRexp "${SRC_FOLDER}" )";
 	DLL_FOLDER="$( readlink -m "${SRC_FOLDER}/${DLL_SUBFOLDER}" )";
-
-	RUN_STDOUT_PATH="${SCRIPT_LOCATION}/.$( printf '%s' "${SCRIPT_EXECUTABLE}" | sed 's/^\(.\+\)\.[^.]\+$/\1/' ).stdout";
-	RUN_STDERR_PATH="${SCRIPT_LOCATION}/.$( printf '%s' "${SCRIPT_EXECUTABLE}" | sed 's/^\(.\+\)\.[^.]\+$/\1/' ).stderr";
 
 	ROOT_FOLDERS_REGEXP="$( text_toRexp "$( printf '%s\n%s' "${BIN_FOLDER}" "${SRC_FOLDER}" )" )";
 
