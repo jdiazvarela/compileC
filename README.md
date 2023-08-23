@@ -23,9 +23,9 @@ The expected project structure is something like this:
 projectFolder/
   ├── compileC.sh   <--- add the script right here
   │
-  └── src/
+  └── src/          <--  source folder
        │
-       ├── main.c
+       ├── main.c   <--  main source file
        │
        └── dll.d/   <--- where the script searches for modules (dlls)
             │
@@ -38,7 +38,17 @@ projectFolder/
 
 # Usage
 
-Very simple, just run the script:
+Copy the script beside your `src` folder, this would look something like this:
+
+```txt
+projectFolder/
+  ├── compileC.sh   <--  compilation script
+  └── src/
+       ├── main.c   <--  main source file
+       └── ...
+```
+
+Run the script:
 
 ```bash
 ./compileC.sh
@@ -53,7 +63,9 @@ You will get something like this:
 
 ```
 
-And it keeps waiting for changes.
+As you can see, the script compiles everything and it show you exactly what commands is running.
+
+And it keeps waiting for changes to recompile stuff.
 
 
 # Details
@@ -78,20 +90,22 @@ And inside the `main.cnotes` file:
 glfw
 ```
 
-That is all. I'll add stuff if i need it.
+That is all.
+
+I'll add stuff wen needed.
 
 
 # Example
 
-This projects contains an example (C project) that gives a basic idea of what i was looking to do with the compilation script.
+This project it is more o less structured as a C project that gives a basic idea of what i was looking to do with the compilation script.
 
-To compile just run:
+Clone and run:
 
 ```bash
 ./compileC.sh
 ```
 
-And you will get something like this:
+you will get something like this:
 
 ```txt
  2023-08-13 23:30:34 : file modified since last time 'dll.d/module-A/main.c'
@@ -124,7 +138,16 @@ And you will get something like this:
 
 ```
 
-As you can see, the script compiles everything. Very Nice.
+Then you can edit the source files and test the "live compilation" mechanics.
+
+Very Nice!
+
+
+# TODO
+
+- do not try to recompile what already failed, this only makes it awfull to read error messages
+- compilation flags using `.cnotes` files
+- binary execution arguments using `.cnotes` files
 
 
 # More Info
