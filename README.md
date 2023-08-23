@@ -145,7 +145,6 @@ Very Nice!
 
 # TODO
 
-- do not try to recompile what already failed, this only makes it awfull to read error messages
 - compilation flags using `.cnotes` files
 - binary execution arguments using `.cnotes` files
 

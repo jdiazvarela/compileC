@@ -55,6 +55,7 @@ mainLoop() {
 	printf '%s' "${TO_COMPILE}" | sed -n '/^'"$( text_toRexp "${MAIN_SRC_FILE}" )"'$/q33';
 	if [ $? -eq 33 ]; then
 		if [ -n "${MAIN_PID}" ]; then
+			ended=0;
 			if kill -s 0 "${MAIN_PID}" 1>/dev/null 2>/dev/null; then
 				kill "${MAIN_PID}";
 				if [ $? -eq 0 ]; then
@@ -69,6 +70,15 @@ mainLoop() {
 				showPacer;
 			fi;
 		fi;
+	else
+		if [ ${ended} -eq 1 ]; then
+			if [ -n "${MAIN_PID}" ]; then
+				if ! kill -s 0 "${MAIN_PID}" 1>/dev/null 2>/dev/null; then
+					showPacer 'ended';
+					ended=0;
+				fi;
+			fi;
+		fi;
 	fi;
 	if [ -n "${_SUMMARY}" ]; then
 		printf '%s' "${_SUMMARY}" | sed '1d';
@@ -78,6 +88,7 @@ mainLoop() {
 	# is there something to do?
 	if [ -n "${TO_COMPILE}" ]; then
 
+		printf '\n';
 		msgInfo '** BUILDING';
 
 		local i='';
@@ -134,6 +145,7 @@ main() {
 	local DLLS="${_DLLS}";
 	local DLLS_regexp="$( text_toRexp "${DLLS}" )";
 
+	local _LAST_FAILURES='';
 	local _LAST_MODIFICATION='';
 	local _DEPENDENCIES='';
 	fullInfoUpdate || return $?;
@@ -143,6 +155,7 @@ main() {
 	local lastFullUpdate="$( date +%s )";
 	local curretTimestamp='';
 	local firstRun=0;
+	local ended=0;
 	local bin='';
 
 	local TO_COMPILE='';
@@ -176,6 +189,7 @@ main() {
 				showPacer 'start';
 				./${bin} 1>"${STDOUT}" 2>"${STDERR}" &
 				MAIN_PID=$!;
+				ended=1;
 			fi;
 		fi;
 		firstRun=1;
@@ -227,7 +241,8 @@ msgCd() {
 		| \
 		sed '
 			/^\('"${ROOT_FOLDERS_REGEXP}"'\)$/d
-			s/^\('"${ROOT_FOLDERS_REGEXP}"'\)\//cd '"'"'{{ROOT}}\//;
+			# to hide location
+			### s/^\('"${ROOT_FOLDERS_REGEXP}"'\)\//cd '"'"'{{ROOT}}\//;
 			t_ok;
 			b;
 			:_ok;
@@ -679,7 +694,7 @@ fullInfoUpdate() {
 	fi;
 };
 
-# ENV: _SUMMARY, TO_COMPILE, DEPENDENCIES, LAST_MODIFICATION: updates...one per line, format: <lastupdate>;<filepath>
+# ENV: _LAST_FAILURES, _SUMMARY, TO_COMPILE, DEPENDENCIES, LAST_MODIFICATION: updates...one per line, format: <lastupdate>;<filepath>
 getCompileCandidates() {
 
 	[ -z "${LAST_MODIFICATION}" ] && return 0;
@@ -697,8 +712,6 @@ getCompileCandidates() {
 	for target in $( printf '%s\n' "${LAST_MODIFICATION}" ); do
 		IFS="${ifs}";
 
-		affected='0';
-
 		# parametrizing, format: <lastupdate>;<filepath>
 		lastModification="$( printf '%s' "${target}" | sed -n 's/^\([^;]*\);\(.*\)$/\1/p' )";
 		target="$( printf '%s' "${target}" | sed -n 's/^\([^;]*\);\(.*\)$/\2/p' )";
@@ -707,23 +720,33 @@ getCompileCandidates() {
 		Error $? "obtaining last modification date of file '${target}'" || return $?;
 
 		if [ ${temporal} -gt ${lastModification} ]; then
-			affected='1';
-			_SUMMARY="$( printf '%s\n%s' "${_SUMMARY}" "$( msgModificationDetected "${target}" )" )";
+
+			# was used in previous failed compilation?
+			printf '%s' "${_LAST_FAILURES}" | sed -n '/^'"$( text_toRexp "${temporal};${target}" )"'$/q33';
+			if [ $? -eq 33 ]; then
+
+				:
+
+			else
+				_SUMMARY="$( printf '%s\n%s' "${_SUMMARY}" "$( msgModificationDetected "${target}" )" )";
+				output="$( printf '%s\n%s' "${output}" "${target}" )";
+			fi;
 		else
 			# not a header
 			if ( ! isHeader "${target}" ) && ( ! isCNotes "${target}" ); then
 				# no compiled file?
-				temporal="${BIN_FOLDER}/$( getCompilationOutputSubPath "${target}" )";
-				if [ ! -f "${temporal}" ]; then
-					affected='1';
-					_SUMMARY="$( printf '%s\n%s' "${_SUMMARY}" "$( msgMissingOutput "${target}" "${temporal}" )" )";
+				affected="${BIN_FOLDER}/$( getCompilationOutputSubPath "${target}" )";
+				if [ ! -f "${affected}" ]; then
+					# was used in previous failed compilation?
+					printf '%s' "${_LAST_FAILURES}" | sed -n '/^'"$( text_toRexp "${temporal};${target}" )"'$/q33';
+					if [ $? -eq 33 ]; then
+						:
+					else
+						_SUMMARY="$( printf '%s\n%s' "${_SUMMARY}" "$( msgMissingOutput "${target}" "${affected}" )" )";
+						output="$( printf '%s\n%s' "${output}" "${target}" )";
+					fi;
 				fi;
 			fi;
-		fi;
-
-		if [ ${affected} = '1' ]; then
-			# adding target
-			output="$( printf '%s\n%s' "${output}" "${target}" )";
 		fi;
 	done;
 	IFS="${ifs}";
@@ -943,7 +966,14 @@ compileTarget() {
 
 	msgCommand "${CMD}";
 	${CMD};
-	Error $? "while compiling '${current}'" || return $?;
+	if [ $? -ne 0 ]; then
+		local temporal='';
+		temporal="$( find "$*" -printf '%Ts\n' )";
+		_LAST_FAILURES="$( printf '%s\n%s' "${_LAST_FAILURES}" "${temporal};${current}" )";
+		Error 1 "while compiling '${current}'" || return $?;
+	else
+		_LAST_FAILURES="$( printf '%s' "${_LAST_FAILURES}" | sed '/^[^;]*;'"$( text_toRexp "${current}" )"'$/d' )";
+	fi;
 
 	return 0;
 };
